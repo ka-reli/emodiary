@@ -374,7 +374,9 @@ async function generateFor(mesId, { force = false } = {}) {
     // null-запись — «страница вырвана вручную», без force не переписываем
     if (!force && message.extra && MODULE in message.extra) return;
 
-    const startSwipeId = message.swipe_id;
+    // у свежего сообщения swipe_id ещё undefined — ST инициализирует его в 0
+    // позже, поэтому сравниваем нормализованные значения
+    const startSwipeId = message.swipe_id ?? 0;
     inFlight.add(mesId);
     showPlaceholder(mesId, true);
     try {
@@ -384,13 +386,14 @@ async function generateFor(mesId, { force = false } = {}) {
         if (!html) throw new Error('после очистки от ответа модели ничего не осталось');
 
         // пока писали, юзер мог улистать на другой свайп — не клеим запись к чужому варианту
-        if (message.swipe_id !== startSwipeId) return;
+        if ((message.swipe_id ?? 0) !== startSwipeId) return;
 
         message.extra = message.extra ?? {};
         message.extra[MODULE] = {
             html,
             perspective: perspective.key,
             model: settings.model,
+            swipeId: startSwipeId,
             time: Date.now(),
         };
         syncDiaryToSwipe(message);
@@ -702,7 +705,9 @@ function bindEvents() {
         mesId = Number(mesId);
         if (pendingGeneration.has(mesId)) {
             pendingGeneration.delete(mesId);
-            generateFor(mesId);
+            // force: при создании нового свайпа ST копирует extra предыдущего,
+            // и в нём может лежать чужая запись — свежий текст всегда получает свежую
+            generateFor(mesId, { force: true });
         } else {
             renderDiary(mesId);
         }
@@ -720,18 +725,23 @@ function bindEvents() {
             const message = context.chat[mesId];
             if (!message) return;
 
-            // у этого варианта уже есть своя запись — просто показываем её
-            if (message.extra?.[MODULE]?.html) {
+            // у этого варианта уже есть СВОЯ запись — просто показываем её
+            // (swipeId отличает её от унаследованной при создании свайпа;
+            // у старых записей swipeId нет — считаем их своими)
+            const diary = message.extra?.[MODULE];
+            const ownDiary = diary?.html
+                && (diary.swipeId === undefined || diary.swipeId === (message.swipe_id ?? 0));
+            if (ownDiary) {
                 renderDiary(mesId);
                 return;
             }
 
-            const hasKey = message.extra && MODULE in message.extra; // null = вырвана вручную
+            const tombstone = diary === null; // null = вырвана вручную, не трогаем
             const mes = String(message.mes ?? '').trim();
             // свайп-догенерация (пустой текст/'...') придёт через MESSAGE_RECEIVED;
-            // для готового варианта без записи пишем новую
-            if (getSettings().enabled && !hasKey && mes && mes !== '...') {
-                generateFor(mesId);
+            // для готового варианта пишем свою запись (force — если лежит унаследованная чужая)
+            if (getSettings().enabled && !tombstone && mes && mes !== '...') {
+                generateFor(mesId, { force: !!diary });
             }
         }, 150);
     });
