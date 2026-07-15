@@ -354,14 +354,27 @@ async function chatCompletion(messages, { maxTokens, temperature } = {}) {
 
 // --- генерация и рендер ---
 
+// ST хранит extra каждого свайпа в swipe_info и восстанавливает его при листании —
+// дублируем запись туда, чтобы она пережила свайпы туда-обратно
+function syncDiaryToSwipe(message) {
+    if (!Array.isArray(message.swipe_info)) return;
+    const info = message.swipe_info[message.swipe_id ?? 0];
+    if (!info) return;
+    info.extra = info.extra ?? {};
+    const diary = message.extra?.[MODULE];
+    info.extra[MODULE] = diary ? structuredClone(diary) : null;
+}
+
 async function generateFor(mesId, { force = false } = {}) {
     const settings = getSettings();
     const context = getContext();
     const message = context.chat[mesId];
     if (!message || message.is_system) return;
     if (inFlight.has(mesId)) return;
-    if (!force && message.extra?.[MODULE]) return;
+    // null-запись — «страница вырвана вручную», без force не переписываем
+    if (!force && message.extra && MODULE in message.extra) return;
 
+    const startSwipeId = message.swipe_id;
     inFlight.add(mesId);
     showPlaceholder(mesId, true);
     try {
@@ -370,6 +383,9 @@ async function generateFor(mesId, { force = false } = {}) {
         const html = extractDiaryHtml(raw);
         if (!html) throw new Error('после очистки от ответа модели ничего не осталось');
 
+        // пока писали, юзер мог улистать на другой свайп — не клеим запись к чужому варианту
+        if (message.swipe_id !== startSwipeId) return;
+
         message.extra = message.extra ?? {};
         message.extra[MODULE] = {
             html,
@@ -377,6 +393,7 @@ async function generateFor(mesId, { force = false } = {}) {
             model: settings.model,
             time: Date.now(),
         };
+        syncDiaryToSwipe(message);
         saveChatDebounced();
         renderDiary(mesId);
     } catch (error) {
@@ -438,8 +455,12 @@ function renderAll() {
 function deleteDiary(mesId) {
     const context = getContext();
     const message = context.chat[mesId];
-    if (message?.extra?.[MODULE]) {
-        delete message.extra[MODULE];
+    if (message) {
+        // null вместо delete: помечаем, что запись вырвана вручную,
+        // чтобы авто-режим не переписал её при свайпах
+        message.extra = message.extra ?? {};
+        message.extra[MODULE] = null;
+        syncDiaryToSwipe(message);
         saveChatDebounced();
     }
     renderDiary(mesId);
@@ -693,15 +714,26 @@ function bindEvents() {
 
     eventSource.on(event_types.MESSAGE_SWIPED, (mesId) => {
         mesId = Number(mesId);
-        const context = getContext();
-        const message = context.chat[mesId];
-        deleteDiary(mesId);
-        // при свайпе на уже готовый текст — переписываем сразу; при свайпе-догенерации
-        // текст пустой/'...', и запись придёт через MESSAGE_RECEIVED
-        const mes = String(message?.mes ?? '').trim();
-        if (getSettings().enabled && mes && mes !== '...') {
-            setTimeout(() => generateFor(mesId, { force: true }), 300);
-        }
+        // даём ST дорисовать свайп и восстановить extra из swipe_info
+        setTimeout(() => {
+            const context = getContext();
+            const message = context.chat[mesId];
+            if (!message) return;
+
+            // у этого варианта уже есть своя запись — просто показываем её
+            if (message.extra?.[MODULE]?.html) {
+                renderDiary(mesId);
+                return;
+            }
+
+            const hasKey = message.extra && MODULE in message.extra; // null = вырвана вручную
+            const mes = String(message.mes ?? '').trim();
+            // свайп-догенерация (пустой текст/'...') придёт через MESSAGE_RECEIVED;
+            // для готового варианта без записи пишем новую
+            if (getSettings().enabled && !hasKey && mes && mes !== '...') {
+                generateFor(mesId);
+            }
+        }, 150);
     });
 
     eventSource.on(event_types.CHAT_CHANGED, () => {
