@@ -16,7 +16,6 @@ const DEFAULT_PROMPT = `ты — автор «эмо-дневничка»: по 
 - это комментарий к сцене и к собственным чувствам, НЕ продолжение сюжета.
 - первое лицо, интроспективно. депрессивно, но с проблеском надежды.
 - без заглавных букв (КАПС только для эмоций), минимум знаков препинания, переносы строк вместо абзацев, подростковая искренность.
-- весь текст ТОЛЬКО НА РУССКОМ.
 
 В КАЖДОЙ ЗАПИСИ ОБЯЗАТЕЛЬНО:
 - дата и время (правдоподобные для сцены)
@@ -49,7 +48,13 @@ const DEFAULT_SETTINGS = {
     includePersona: true,
     pastEntries: 2,
     perspectiveMode: 'random', // 'random' | 'auto' | 'character' | 'persona' | 'npc' | 'environment'
+    language: 'ru', // 'ru' | 'en'
     prompt: DEFAULT_PROMPT,
+};
+
+const LANGUAGE_BLOCKS = {
+    ru: '[язык записи]\nвся запись целиком — ТОЛЬКО НА РУССКОМ. эстетика рунета 2000-х: дайри.ру, ЖЖ, беон, аська.',
+    en: '[язык записи]\nthe entire entry must be written ONLY IN ENGLISH. channel 2000s western web aesthetics: LiveJournal, MySpace, Xanga, deviantART journals — xD, rawr, ~*~decorations~*~, AIM away-message energy.',
 };
 
 const PERSPECTIVE_LABELS = {
@@ -98,6 +103,11 @@ function getSettings() {
         if (settings[key] === undefined) {
             settings[key] = DEFAULT_SETTINGS[key];
         }
+    }
+    // миграция: раньше язык был зашит в промт, теперь задаётся отдельной настройкой
+    if (typeof settings.prompt === 'string' && settings.prompt.includes('весь текст ТОЛЬКО НА РУССКОМ')) {
+        settings.prompt = settings.prompt.replace(/^- весь текст ТОЛЬКО НА РУССКОМ\.\s*$\n?/m, '');
+        saveSettingsDebounced();
     }
     return settings;
 }
@@ -247,6 +257,8 @@ function buildMessages(mesId, perspective) {
     }
 
     const blocks = [`ТОЧКА ЗРЕНИЯ ЭТОЙ ЗАПИСИ: ${perspective.text}`];
+
+    blocks.push(LANGUAGE_BLOCKS[settings.language] ?? LANGUAGE_BLOCKS.ru);
 
     if (settings.includeCards) {
         const cards = collectCards(message);
@@ -516,6 +528,11 @@ function settingsHtml() {
 
                 <hr>
                 <h4>Генерация</h4>
+                <label>Язык дневника</label>
+                <select id="emodiary_language" class="text_pole">
+                    <option value="ru" ${s.language === 'ru' ? 'selected' : ''}>русский (дайри.ру, ЖЖ, беон)</option>
+                    <option value="en" ${s.language === 'en' ? 'selected' : ''}>english (LiveJournal, MySpace, Xanga)</option>
+                </select>
                 <label>Чей дневник</label>
                 <select id="emodiary_perspective" class="text_pole">
                     <option value="random" ${s.perspectiveMode === 'random' ? 'selected' : ''}>рандом (персонаж/персона/нпс/окружение)</option>
@@ -566,6 +583,7 @@ function bindSettings() {
         }
     });
     $('#emodiary_perspective').on('change', function () { s.perspectiveMode = $(this).val(); save(); });
+    $('#emodiary_language').on('change', function () { s.language = $(this).val(); save(); });
     $('#emodiary_depth').on('input', function () { s.depth = Number($(this).val()); $('#emodiary_depth_value').text(s.depth); save(); });
     $('#emodiary_past').on('input', function () { s.pastEntries = Number($(this).val()); $('#emodiary_past_value').text(s.pastEntries); save(); });
     $('#emodiary_temp').on('input', function () { s.temperature = Number($(this).val()); $('#emodiary_temp_value').text(s.temperature); save(); });
