@@ -1,5 +1,5 @@
 // EmoDiary — эмо-дневничок для SillyTavern.
-// Отдельная модель дописывает к сообщениям HTML-блок «дневника» в эстетике рунета 2000-х.
+// Отдельная модель дописывает к сообщениям HTML-блок «дневника» в эстетике западного веба 2000-х.
 // Блок хранится в message.extra и НЕ попадает в контекст основной модели.
 
 import { extension_settings, getContext } from '../../../extensions.js';
@@ -9,7 +9,7 @@ import { callGenericPopup, POPUP_TYPE } from '../../../popup.js';
 
 const MODULE = 'emodiary';
 
-const DEFAULT_PROMPT = `ты — автор «эмо-дневничка»: по событиям ролевой сцены ты пишешь ОДНУ запись личного дневника/блога в эстетике рунета 2000-х (дайри.ру, ЖЖ, беон, MySpace).
+const DEFAULT_PROMPT = `ты — автор «эмо-дневничка»: по событиям ролевой сцены ты пишешь ОДНУ запись личного дневника/блога в эстетике западного веба 2000-х (LiveJournal, MySpace, Xanga, журналы deviantART): xD, rawr, ~*~украшения~*~, вайб away-статусов AIM.
 
 СМЫСЛ:
 - запись — внутренний монолог автора: тайные мысли, которые он никогда не скажет вслух.
@@ -20,7 +20,7 @@ const DEFAULT_PROMPT = `ты — автор «эмо-дневничка»: по 
 В КАЖДОЙ ЗАПИСИ ОБЯЗАТЕЛЬНО:
 - дата и время (правдоподобные для сцены)
 - настроение с эмодзи/каомодзи
-- статус-строка (как статус в аське/MySpace)
+- статус-строка (как away-статус в AIM/MySpace)
 - «сейчас играет» и/или «где я» (по желанию)
 - основной текст записи (поток сознания)
 - счётчик комментов/лайков (0 или почти 0)
@@ -53,8 +53,8 @@ const DEFAULT_SETTINGS = {
 };
 
 const LANGUAGE_BLOCKS = {
-    ru: '[язык записи]\nвся запись целиком — ТОЛЬКО НА РУССКОМ. эстетика рунета 2000-х: дайри.ру, ЖЖ, беон, аська.',
-    en: '[язык записи]\nthe entire entry must be written ONLY IN ENGLISH. channel 2000s western web aesthetics: LiveJournal, MySpace, Xanga, deviantART journals — xD, rawr, ~*~decorations~*~, AIM away-message energy.',
+    ru: '[язык записи]\nвся запись целиком — ТОЛЬКО НА РУССКОМ. но эстетика остаётся западной (LiveJournal, MySpace, Xanga): xD, rawr, ~*~decorations~*~. никакого рунета — не упоминай дайри.ру, ЖЖ, аську и подобное.',
+    en: '[язык записи]\nthe entire entry must be written ONLY IN ENGLISH.',
 };
 
 const PERSPECTIVE_LABELS = {
@@ -104,10 +104,21 @@ function getSettings() {
             settings[key] = DEFAULT_SETTINGS[key];
         }
     }
-    // миграция: раньше язык был зашит в промт, теперь задаётся отдельной настройкой
-    if (typeof settings.prompt === 'string' && settings.prompt.includes('весь текст ТОЛЬКО НА РУССКОМ')) {
-        settings.prompt = settings.prompt.replace(/^- весь текст ТОЛЬКО НА РУССКОМ\.\s*$\n?/m, '');
-        saveSettingsDebounced();
+    // миграции сохранённого промта: раньше язык был зашит в промт,
+    // а эстетика ссылалась на рунет — теперь язык задаётся настройкой,
+    // а вайб всегда западный (LiveJournal/MySpace/Xanga)
+    if (typeof settings.prompt === 'string') {
+        const migrated = settings.prompt
+            .replace(/^- весь текст ТОЛЬКО НА РУССКОМ\.\s*$\n?/m, '')
+            .replace(
+                'в эстетике рунета 2000-х (дайри.ру, ЖЖ, беон, MySpace).',
+                'в эстетике западного веба 2000-х (LiveJournal, MySpace, Xanga, журналы deviantART): xD, rawr, ~*~украшения~*~, вайб away-статусов AIM.',
+            )
+            .replace('статус-строка (как статус в аське/MySpace)', 'статус-строка (как away-статус в AIM/MySpace)');
+        if (migrated !== settings.prompt) {
+            settings.prompt = migrated;
+            saveSettingsDebounced();
+        }
     }
     return settings;
 }
@@ -530,8 +541,8 @@ function settingsHtml() {
                 <h4>Генерация</h4>
                 <label>Язык дневника</label>
                 <select id="emodiary_language" class="text_pole">
-                    <option value="ru" ${s.language === 'ru' ? 'selected' : ''}>русский (дайри.ру, ЖЖ, беон)</option>
-                    <option value="en" ${s.language === 'en' ? 'selected' : ''}>english (LiveJournal, MySpace, Xanga)</option>
+                    <option value="ru" ${s.language === 'ru' ? 'selected' : ''}>русский</option>
+                    <option value="en" ${s.language === 'en' ? 'selected' : ''}>english</option>
                 </select>
                 <label>Чей дневник</label>
                 <select id="emodiary_perspective" class="text_pole">
