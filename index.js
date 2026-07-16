@@ -31,7 +31,7 @@ const DEFAULT_PROMPT = `ты — автор «эмо-дневничка»: по 
 - только инлайновый CSS (атрибут style). НИКАКИХ тегов <style> и <script>.
 - тёмные фоны (#000, #111, #232328), яркие эмо-акценты (#ff1493, #ff69b4, #00ff00, #ff0000).
 - шрифты: 'Times New Roman', 'Courier New', 'Comic Sans MS'. мелкий кегль (10–12px).
-- max-width:100%, никакого горизонтального скролла.
+- вёрстка строго резиновая (читают с телефонов!): max-width:100%, никакого горизонтального скролла, никаких фиксированных ширин в px, position:absolute/fixed и white-space:nowrap. ascii-разделители — короткие (до ~20 символов). таблицы только с width:100%.
 - рамки (solid/dashed/dotted), градиенты в старом webkit-синтаксисе, ascii-декор (☽ ☾ ♡ ★ ✞ ▓ ░ ✂ ✉), фейковые нерабочие кнопочки, гостевые счётчики, «баннеры».
 - КАЖДЫЙ РАЗ УДИВЛЯЙ: меняй структуру, декор, вёрстку и голос записи. никогда не повторяй прошлую вёрстку один в один.`;
 
@@ -114,7 +114,11 @@ function getSettings() {
                 'в эстетике рунета 2000-х (дайри.ру, ЖЖ, беон, MySpace).',
                 'в эстетике западного веба 2000-х (LiveJournal, MySpace, Xanga, журналы deviantART): xD, rawr, ~*~украшения~*~, вайб away-статусов AIM.',
             )
-            .replace('статус-строка (как статус в аське/MySpace)', 'статус-строка (как away-статус в AIM/MySpace)');
+            .replace('статус-строка (как статус в аське/MySpace)', 'статус-строка (как away-статус в AIM/MySpace)')
+            .replace(
+                '- max-width:100%, никакого горизонтального скролла.',
+                '- вёрстка строго резиновая (читают с телефонов!): max-width:100%, никакого горизонтального скролла, никаких фиксированных ширин в px, position:absolute/fixed и white-space:nowrap. ascii-разделители — короткие (до ~20 символов). таблицы только с width:100%.',
+            );
         if (migrated !== settings.prompt) {
             settings.prompt = migrated;
             saveSettingsDebounced();
@@ -170,9 +174,33 @@ function extractDiaryHtml(raw) {
     s = s.replace(/<\/?(?:html|head|body)[^>]*>/gi, '');
     s = s.replace(/<meta[^>]*>/gi, '');
     s = s.replace(/<title[\s\S]*?<\/title>/gi, '');
-    return DOMPurify.sanitize(s.trim(), {
+    const clean = DOMPurify.sanitize(s.trim(), {
         FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'link', 'meta', 'base', 'form'],
     });
+    return hardenLayout(clean);
+}
+
+// Нейтрализуем инлайн-стили, из-за которых вёрстка вылезает за экран на телефоне
+// (жёсткие CSS-правила в style.css страхуют дополнительно, в т.ч. старые записи)
+function hardenLayout(html) {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    for (const el of wrapper.querySelectorAll('*')) {
+        const st = el.style;
+        if (!st || !st.length) continue;
+        if (['fixed', 'sticky', 'absolute'].includes(st.position)) {
+            st.position = 'static';
+        }
+        if (st.whiteSpace === 'nowrap') {
+            st.whiteSpace = 'normal';
+        } else if (st.whiteSpace === 'pre') {
+            st.whiteSpace = 'pre-wrap';
+        }
+        if (st.minWidth) {
+            st.minWidth = '0';
+        }
+    }
+    return wrapper.innerHTML;
 }
 
 // --- сборка промта ---

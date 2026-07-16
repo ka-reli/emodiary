@@ -5,7 +5,39 @@
 
 .emodiary-inner {
     max-width: 100%;
-    overflow-x: auto;
+    overflow-x: hidden;
+    contain: paint;
+}
+
+/* смирительная рубашка для вёрстки от модели: что бы она ни навертела,
+   за пределы блока (и экрана телефона) ничего не вылезает */
+.emodiary-inner *,
+.emodiary-viewer-entry-body * {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    overflow-wrap: anywhere;
+}
+
+.emodiary-inner table,
+.emodiary-viewer-entry-body table {
+    width: 100% !important;
+    table-layout: fixed !important;
+}
+
+.emodiary-inner pre,
+.emodiary-viewer-entry-body pre {
+    white-space: pre-wrap !important;
+}
+
+.emodiary-inner img,
+.emodiary-viewer-entry-body img {
+    height: auto !important;
+}
+
+.emodiary-inner [style*="nowrap"],
+.emodiary-viewer-entry-body [style*="nowrap"] {
+    white-space: normal !important;
 }
 
 .emodiary-toolbar {
@@ -68,7 +100,8 @@
 
 .emodiary-viewer-entry-body {
     max-width: 100%;
-    overflow-x: auto;
+    overflow-x: hidden;
+    contain: paint;
 }
 
 .emodiary-viewer-empty {
