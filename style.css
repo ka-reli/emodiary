@@ -156,6 +156,13 @@
     display: flex;
 }
 
+.emodiary-hint {
+    font-size: 0.8em;
+    opacity: 0.6;
+    margin-top: 4px;
+    word-break: break-word;
+}
+
 .emodiary-status {
     margin-top: 6px;
     font-size: 0.85em;

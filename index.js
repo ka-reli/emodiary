@@ -72,6 +72,8 @@ const LEGACY_RU_PROMPT = `ты — автор «эмо-дневничка»: п�
 const DEFAULT_SETTINGS = {
     enabled: true,
     attachToUser: false,
+    apiSource: 'custom', // 'custom' | 'profile'
+    profileId: '',
     endpoint: '',
     apiKey: '',
     model: '',
@@ -559,7 +561,7 @@ async function fetchModels() {
     return list.map(m => m?.id ?? m?.name).filter(Boolean).sort();
 }
 
-async function chatCompletion(messages, { maxTokens, temperature } = {}) {
+async function chatCompletionCustom(messages, { maxTokens, temperature } = {}) {
     const settings = getSettings();
     if (!settings.model) throw new Error('не выбрана модель');
     const data = await apiRequest('/chat/completions', {
@@ -578,6 +580,59 @@ async function chatCompletion(messages, { maxTokens, temperature } = {}) {
     }
     if (!content) throw new Error('провайдер вернул пустой ответ');
     return content;
+}
+
+// --- профили подключения самой таверны ---
+
+function getProfiles() {
+    const context = getContext();
+    return context.extensionSettings?.connectionManager?.profiles ?? [];
+}
+
+function getProfileById(id) {
+    return getProfiles().find(profile => profile.id === id);
+}
+
+// Запрос уходит через ST: ключ и адрес остаются на её стороне, дублировать
+// их в настройках расширения не нужно.
+async function chatCompletionProfile(messages, { maxTokens } = {}) {
+    const settings = getSettings();
+    const service = getContext().ConnectionManagerRequestService;
+    if (!service?.sendRequest) {
+        throw new Error('в этой сборке SillyTavern нет менеджера профилей подключения — используй свой эндпойнт');
+    }
+    if (!settings.profileId) throw new Error('не выбран профиль подключения');
+    if (!getProfileById(settings.profileId)) throw new Error('выбранный профиль больше не существует — выбери другой');
+
+    // пресет и инструкт-шаблон профиля нам не нужны: у дневничка свой промт,
+    // иначе в него подмешается системный промт ролевой игры
+    const options = { extractData: true, includePreset: false, includeInstruct: false };
+    const limit = maxTokens ?? settings.maxTokens;
+
+    let result;
+    try {
+        result = await service.sendRequest(settings.profileId, messages, limit, options);
+    } catch (error) {
+        // сборки постарше принимают только плоский текст вместо массива сообщений
+        console.debug(`[${MODULE}] профиль не принял массив сообщений, пробуем текстом:`, error);
+        const flat = messages.map(m => m.content).join('\n\n');
+        result = await service.sendRequest(settings.profileId, flat, limit, options);
+    }
+
+    let content = typeof result === 'string'
+        ? result
+        : (result?.content ?? result?.choices?.[0]?.message?.content ?? result?.text ?? '');
+    if (Array.isArray(content)) {
+        content = content.map(part => part?.text ?? '').join('');
+    }
+    if (!content) throw new Error('профиль вернул пустой ответ');
+    return content;
+}
+
+function chatCompletion(messages, options = {}) {
+    return getSettings().apiSource === 'profile'
+        ? chatCompletionProfile(messages, options)
+        : chatCompletionCustom(messages, options);
 }
 
 // --- генерация и рендер ---
@@ -793,6 +848,23 @@ function settingsHtml() {
 
                 <hr>
                 <h4>Подключение</h4>
+                <label>Откуда брать модель</label>
+                <select id="emodiary_source" class="text_pole">
+                    <option value="profile" ${s.apiSource === 'profile' ? 'selected' : ''}>профиль подключения таверны</option>
+                    <option value="custom" ${s.apiSource === 'custom' ? 'selected' : ''}>свой эндпойнт</option>
+                </select>
+
+                <div id="emodiary_profile_block">
+                    <label>Профиль</label>
+                    <select id="emodiary_profile" class="text_pole"></select>
+                    <div class="flex-container">
+                        <div id="emodiary_profile_refresh" class="menu_button">Обновить список</div>
+                        <div id="emodiary_profile_test" class="menu_button">Проверить профиль</div>
+                    </div>
+                    <div id="emodiary_profile_info" class="emodiary-hint"></div>
+                </div>
+
+                <div id="emodiary_custom_block">
                 <label>Эндпойнт (OpenAI-совместимый, вместе с /v1)</label>
                 <input type="text" id="emodiary_endpoint" class="text_pole" placeholder="https://openrouter.ai/api/v1" value="${escapeHtml(s.endpoint)}">
                 <label>API-ключ</label>
@@ -807,6 +879,7 @@ function settingsHtml() {
                 <input type="text" id="emodiary_model" class="text_pole" placeholder="или впиши id модели вручную" value="${escapeHtml(s.model)}">
                 <div class="flex-container">
                     <div id="emodiary_test_model" class="menu_button">Проверить модель</div>
+                </div>
                 </div>
                 <div id="emodiary_status" class="emodiary-status"></div>
 
@@ -873,6 +946,7 @@ function settingsHtml() {
                 <h4>Модель</h4>
                 <label>Температура: <span id="emodiary_temp_value">${s.temperature}</span></label>
                 <input type="range" id="emodiary_temp" min="0" max="2" step="0.05" value="${s.temperature}">
+                <div class="emodiary-hint">для профиля таверны температуру и сэмплеры задаёт сам профиль</div>
                 <label>Максимум токенов ответа</label>
                 <input type="number" id="emodiary_max_tokens" class="text_pole" min="200" max="16000" value="${s.maxTokens}">
 
@@ -885,6 +959,43 @@ function settingsHtml() {
             </div>
         </div>
     </div>`;
+}
+
+function refreshProfileList() {
+    const settings = getSettings();
+    const $select = $('#emodiary_profile');
+    if (!$select.length) return;
+
+    const profiles = getProfiles();
+    $select.empty();
+    if (!profiles.length) {
+        $select.append('<option value="">— в таверне нет профилей подключения —</option>');
+        $('#emodiary_profile_info').text('Профили создаются в меню подключения таверны (Connection Profiles).');
+        return;
+    }
+
+    $select.append('<option value="">— выбери профиль —</option>');
+    for (const profile of profiles) {
+        $select.append($('<option>').val(profile.id).text(profile.name ?? profile.id));
+    }
+    if (settings.profileId && profiles.some(p => p.id === settings.profileId)) {
+        $select.val(settings.profileId);
+    }
+    showProfileInfo();
+}
+
+function showProfileInfo() {
+    const profile = getProfileById(getSettings().profileId);
+    const parts = profile
+        ? [profile.api, profile.model].filter(Boolean)
+        : [];
+    $('#emodiary_profile_info').text(parts.length ? `api: ${parts.join(' · модель: ')}` : '');
+}
+
+function updateSourceVisibility() {
+    const profileMode = getSettings().apiSource === 'profile';
+    $('#emodiary_profile_block').toggle(profileMode);
+    $('#emodiary_custom_block').toggle(!profileMode);
 }
 
 function setStatus(text, ok = null) {
@@ -903,6 +1014,37 @@ function bindSettings() {
         getSettings()[key] = value;
         saveSettingsDebounced();
     };
+
+    $('#emodiary_source').on('change', function () {
+        set('apiSource', $(this).val());
+        updateSourceVisibility();
+        setStatus('');
+        if (getSettings().apiSource === 'profile') refreshProfileList();
+    });
+    $('#emodiary_profile').on('change', function () {
+        set('profileId', $(this).val());
+        showProfileInfo();
+        setStatus('');
+    });
+    $('#emodiary_profile_refresh').on('click', () => {
+        refreshProfileList();
+        const count = getProfiles().length;
+        setStatus(count ? `профилей найдено: ${count}` : '✖ в таверне нет профилей подключения', count > 0);
+    });
+    $('#emodiary_profile_test').on('click', async () => {
+        const profile = getProfileById(getSettings().profileId);
+        if (!profile) {
+            setStatus('✖ сначала выбери профиль', false);
+            return;
+        }
+        setStatus(`проверяем профиль «${profile.name ?? profile.id}»...`);
+        try {
+            await chatCompletionProfile([{ role: 'user', content: 'reply with one word: hello' }], { maxTokens: 20 });
+            setStatus(`✔ профиль «${profile.name ?? profile.id}» отвечает`, true);
+        } catch (error) {
+            setStatus(`✖ профиль не отвечает: ${error.message}`, false);
+        }
+    });
 
     $('#emodiary_enabled').on('input', function () { set('enabled', $(this).prop('checked')); });
     $('#emodiary_attach_user').on('input', function () { set('attachToUser', $(this).prop('checked')); });
@@ -1104,6 +1246,8 @@ jQuery(async () => {
     getSettings();
     $('#extensions_settings2').append(settingsHtml());
     bindSettings();
+    updateSourceVisibility();
+    refreshProfileList();
     addMenuItems();
     bindEvents();
     setTimeout(renderAll, 500);
