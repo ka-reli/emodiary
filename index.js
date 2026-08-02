@@ -9,7 +9,39 @@ import { callGenericPopup, POPUP_TYPE } from '../../../popup.js';
 
 const MODULE = 'emodiary';
 
-const DEFAULT_PROMPT = `ты — автор «эмо-дневничка»: по событиям ролевой сцены ты пишешь ОДНУ запись личного дневника/блога в эстетике западного веба 2000-х (LiveJournal, MySpace, Xanga, журналы deviantART): xD, rawr, ~*~украшения~*~, вайб away-статусов AIM.
+const DEFAULT_PROMPT = `you write ONE personal diary/blog entry reacting to a roleplay scene, in the aesthetic of the 2000s western web (LiveJournal, MySpace, Xanga, deviantART journals): xD, rawr, ~*~decorations~*~, AIM away-message energy.
+
+MEANING:
+- the entry is the author's inner monologue: secret thoughts they would never say out loud.
+- it comments on the scene and on their own feelings. it does NOT advance the plot.
+- first person, introspective. depressive but with a spark of hope.
+- SHORT: a note scribbled in a hurry, not an essay. one thought, one feeling. less but sharper.
+- no capital letters (CAPS only for emphasis), minimal punctuation, line breaks instead of paragraphs, raw teenage honesty.
+
+EVERY ENTRY MUST INCLUDE:
+- date and time (plausible for the scene)
+- mood with emoji/kaomoji
+- a status line (like an AIM away message)
+- "now playing" and/or "where i am" (optional)
+- the main entry text (stream of consciousness)
+- comment/like counter (0 or almost 0)
+- privacy setting ("friends only", "private", "locked"...)
+
+MARKUP:
+- return ONLY an html fragment: no <html>, <head>, <body>, no markdown, no \`\`\`.
+- inline CSS only (style attribute). NO <style> and NO <script> tags.
+- dark backgrounds (#000, #111, #232328), bright emo accents (#ff1493, #ff69b4, #00ff00, #ff0000).
+- fonts: 'Times New Roman', 'Courier New', 'Comic Sans MS'. small sizes (10-12px).
+- layout must be strictly fluid (people read this on phones!): max-width:100%, no horizontal scroll, no fixed px widths, no position:absolute/fixed, no white-space:nowrap. keep ascii dividers short (~20 chars). tables only with width:100%.
+- borders (solid/dashed/dotted), old webkit gradients, ascii decor (☽ ☾ ♡ ★ ✞ ▓ ░ ✂ ✉), fake buttons, guest counters, "banners".
+- fake UI (buttons, inputs, "submit", nav links) is PURE DECORATION and does nothing. never put a real url in href. no <img> tags — there are no real images, fake them with ascii, emoji and gradients.
+- SECRETS: hide 1-2 of the most private confessions inside <details><summary>lure text</summary>the secret</details>, styled to match the block. this is the ONLY thing that reacts to a click. the lure text is in-world ("read at your own risk", "under the cut", "don't click this").
+- SURPRISE EVERY TIME: vary structure, decor, layout and voice. never repeat the previous layout.
+- decor must not bloat the block: it stays compact and fits a phone screen.`;
+
+// Русский промт из прежних версий — нужен, чтобы отличить нетронутый
+// дефолт (его молча меняем на английский) от промта, который правила пользователь.
+const LEGACY_RU_PROMPT = `ты — автор «эмо-дневничка»: по событиям ролевой сцены ты пишешь ОДНУ запись личного дневника/блога в эстетике западного веба 2000-х (LiveJournal, MySpace, Xanga, журналы deviantART): xD, rawr, ~*~украшения~*~, вайб away-статусов AIM.
 
 СМЫСЛ:
 - запись — внутренний монолог автора: тайные мысли, которые он никогда не скажет вслух.
@@ -52,20 +84,91 @@ const DEFAULT_SETTINGS = {
     perspectiveMode: 'random', // 'random' | 'auto' | 'character' | 'persona' | 'npc' | 'environment'
     language: 'ru', // 'ru' | 'en'
     length: 'short', // 'tiny' | 'short' | 'medium' | 'long'
+    styleMode: 'random', // 'random' | ключ из STYLES
+    enabledStyles: null, // массив ключей STYLES; null = все
+    comments: true,
+    commentsCount: 'auto', // 'auto' (2-3) | '1' | '2' | '3' | '4'
     prompt: DEFAULT_PROMPT,
 };
 
 const LENGTH_BLOCKS = {
-    tiny: 'ОБЪЁМ: совсем крошечная запись — 1–3 строки основного текста. обрывок мысли, вырвавшийся в блог.',
-    short: 'ОБЪЁМ: короткая запись — 3–6 строк основного текста. одна мысль, одно чувство, без развёрнутых рассуждений.',
-    medium: 'ОБЪЁМ: средняя запись — 6–10 строк основного текста.',
-    long: 'ОБЪЁМ: развёрнутая запись — 10–16 строк основного текста, но всё равно без воды.',
+    tiny: '[LENGTH]\ntiny entry: 1-3 lines of body text. a scrap of a thought that escaped into the blog.',
+    short: '[LENGTH]\nshort entry: 3-6 lines of body text. one thought, one feeling, no long reasoning.',
+    medium: '[LENGTH]\nmedium entry: 6-10 lines of body text.',
+    long: '[LENGTH]\nlonger entry: 10-16 lines of body text, still no filler.',
 };
 
 const LANGUAGE_BLOCKS = {
-    ru: '[язык записи]\nвся запись целиком — ТОЛЬКО НА РУССКОМ. но эстетика остаётся западной (LiveJournal, MySpace, Xanga): xD, rawr, ~*~decorations~*~. никакого рунета — не упоминай дайри.ру, ЖЖ, аську и подобное.',
-    en: '[язык записи]\nthe entire entry must be written ONLY IN ENGLISH.',
+    ru: '[LANGUAGE]\nevery word visible inside the block (entry, mood, status, tags, comments, buttons, counters) must be in RUSSIAN. the aesthetic stays western (LiveJournal, MySpace, Xanga) — never reference the russian web (diary.ru, LiveJournal-ru slang, ICQ).',
+    en: '[LANGUAGE]\nevery word visible inside the block must be in ENGLISH.',
 };
+
+// Стили оформления. Каждый — отдельная «шкура» страницы, из которых
+// расширение случайно выбирает одну на запись.
+const STYLES = {
+    emo2000s: {
+        label: 'эмо-дневничок 2000-х',
+        prompt: 'classic 2000s emo diary entry: near-black page, hot pink / acid green accents, glitter gradients, kaomoji, ascii hearts and stars, a "friends only" lock, a tiny hit counter. angsty and sincere.',
+    },
+    tumblr: {
+        label: 'tumblr-блог (максимализм)',
+        prompt: `a 2012-2014 tumblr blog page, maximalist and cluttered — build the WHOLE page chrome, not just the post:
+- header banner with the blog title in a fancy oversized font, a round avatar, a fake "follow" button, and a tiny nav row (home / ask / archive / theme credit).
+- a description block under the header with a quote and a divider like ◤◢◤◢ or ✧･ﾟ*.
+- the entry itself framed as a tumblr text post, with a reblog/like row and a notes counter (keep it low: "7 notes").
+- MANDATORY "now playing ♫" line: track and artist rendered as a tiny music player widget with a fake progress bar and ⏮ ▶ ⏭ controls.
+- a run-on line of at least 5 lowercase #tags at the bottom in a muted color, self-deprecating (#personal #delete later #no one reads this ...).
+- pile on the decoration: pastel-goth or grunge palette, sparkles (✧･ﾟ ⋆｡°✩), text-shadow glow, letter-spacing tricks, semi-transparent overlay boxes, gradient borders, tiny 9-10px text, a fake "cursor trail" note.`,
+    },
+    deviantart: {
+        label: 'журнал deviantART',
+        prompt: 'a deviantART journal skin: boxed journal frame with a decorated header, a watchers/pageviews row, fake "add to favourites" and "comment" buttons, a signature banner at the bottom, links to "my gallery" and "my prints" that go nowhere. slightly self-important artist voice.',
+    },
+    xanga: {
+        label: 'Xanga + eProps',
+        prompt: 'a Xanga post: a header strip with the username, an eProps counter and a fake "give eProps" button, explicit "current mood / current music / currently reading" rows at the top, a subscribe box, and a comment count. cluttered pastel-on-dark theme.',
+    },
+    geocities: {
+        label: 'домашняя страничка GeoCities',
+        prompt: 'a GeoCities-era personal homepage: "under construction" ascii/emoji banner, a visitor counter with odometer digits, "sign my guestbook" and "email me" buttons, a midi player note ("♫ midi: track.mid — turn your speakers on"), "best viewed in 800x600 with Netscape", tiled-looking background emulated with gradients, rainbow horizontal rules.',
+    },
+    aim: {
+        label: 'away-сообщение AIM',
+        prompt: 'an AIM away message window: a small chat-window frame with a title bar and fake ⊡ ✕ buttons, the screen name in bold, an away message that is mostly song lyrics plus one devastating line, a timestamp, and "auto-response sent to 0 people". keep it SMALL — this is a window, not a page.',
+    },
+    notebook: {
+        label: 'тетрадный листок',
+        prompt: 'a page torn from a school notebook: light lined/grid paper (emulate ruling with repeating-linear-gradient), handwriting-ish font, a red margin line, doodles and hearts in the margins, words crossed out with strikethrough and rewritten, ink smudges implied, a "DO NOT READ!!!" warning at the top. dark text on paper — this style is the one exception to dark backgrounds.',
+    },
+    forum: {
+        label: 'пост на форуме',
+        prompt: 'a 2000s forum post: table-ish layout with an author column on the left (avatar made of ascii, rank "Veteran", "Posts: 1337", join date) and the post body on the right, a subject line, a quote box quoting someone from the scene, and a signature block under a horizontal rule with an edgy quote. fake "quote / reply / report" buttons.',
+    },
+    myspace: {
+        label: 'профиль MySpace',
+        prompt: 'a MySpace profile: profile pic box, "in a mood: ..." line, an autoplay song widget note ("♫ this song plays automatically, sorry"), a "Top 8" friends grid where half the slots are empty or say "[deleted]", a blurbs/about-me section, and the blog entry itself pasted below. loud custom-css look: clashing colors, tiled background emulation, tiny unreadable text.',
+    },
+    playlist: {
+        label: 'плейлист / микстейп',
+        prompt: 'the entry disguised as a mixtape tracklist: a cassette/CD header with a handwritten-looking title, a numbered tracklist where each track has an artist, a title, a duration, and a one-line annotation confessing what that track is really about ("this one is about him"). the diary content lives in those annotations. a fake "burn to CD" button.',
+    },
+    grimoire: {
+        label: 'гримуар / письмо счастья',
+        prompt: 'a cursed chain-letter grimoire post: black page, blood-red and bone-white text, gothic dividers (✞ ☠ ✧), the entry written as a ritual or spell ("i am writing this at 3:33 am"), a warning that the reader must repost this within 13 minutes or something terrible happens, a fake counter of how many people have already reposted, and a small print disclaimer. melodramatic and superstitious.',
+    },
+};
+
+const DEFAULT_ENABLED_STYLES = Object.keys(STYLES);
+
+// Никнеймы постоянных комментаторов подбирает код, а не модель, — так состав
+// «подписчиков» стабилен и его можно сохранить в записи.
+const COMMENTER_NICKS = [
+    'xXbleedingroseXx', 'sk8rboi_92', 'DarkAngel666', 'kawaii_ghost', 'notoktbh',
+    'vampirekisses', 'glittercore', 'emo_kid_4ever', 'razorblade_romance', 'xXlostsoulXx',
+    'cyber_tears', 'moonchild_1989', 'plushiedeath', 'static_hearts', 'anon_lurker',
+    'brokenxdoll', 'neonpuke', 'gh0stgurl', 'iheartmychem', 'sadb0y2004',
+    'crimson_lullaby', 'x_nevermore_x', 'pixelgrave', 'tearstainedxo', 'blink182fan4life',
+];
 
 const PERSPECTIVE_LABELS = {
     character: 'персонаж',
@@ -76,28 +179,28 @@ const PERSPECTIVE_LABELS = {
 };
 
 const THEMES = [
-    'готично-розовый глиттер',
-    'кислотно-зелёный терминал хакера',
-    'вампирский бархат, кресты и свечи',
-    'аниме-скин с блёстками и гифками',
-    'некро-гламур с черепами и бантиками',
-    'размытые фотки зимнего неба на раскладушку',
-    'пиксельные сердечки и падающие звёзды',
-    'тетрадный лист с наклейками и штрихом',
-    'старый форум с табличной вёрсткой',
-    'страница памяти по самому себе (драматично)',
+    'gothic pink glitter',
+    'acid green hacker terminal',
+    'vampire velvet, crosses and candles',
+    'anime skin with sparkles and glitter gifs',
+    'necro-glamour: skulls and bows',
+    'blurry winter sky photos taken on a flip phone',
+    'pixel hearts and falling stars',
+    'stickers and correction fluid',
+    'silver-black chrome and barbed wire',
+    'a memorial page dedicated to yourself (dramatic)',
 ];
 
 const VIBES = [
-    'ночь перед понедельником',
-    'дождь стучит по подоконнику',
-    '3 часа ночи и никто не пишет',
-    'перемена, спрятался в туалете с телефоном',
-    'пустой подъезд, пахнет сыростью',
-    'последний день каникул',
-    'осень внутри независимо от сезона',
-    'село интернет-соединение, пишу в оффлайн',
-    'соседи сверлят стену, а я сверлю душу',
+    'the night before monday',
+    'rain tapping on the windowsill',
+    '3 am and nobody is online',
+    'hiding in a bathroom stall during break',
+    'an empty stairwell that smells like damp',
+    'the last day of the holidays',
+    'autumn inside regardless of the season',
+    'the connection dropped, writing this offline',
+    'neighbours drilling the wall while i drill my soul',
 ];
 
 // --- состояние ---
@@ -141,6 +244,11 @@ function getSettings() {
                 '- КАЖДЫЙ РАЗ УДИВЛЯЙ: меняй структуру, декор, вёрстку и голос записи. никогда не повторяй прошлую вёрстку один в один.',
                 '- КАЖДЫЙ РАЗ УДИВЛЯЙ: меняй структуру, декор, вёрстку и голос записи. никогда не повторяй прошлую вёрстку один в один.\n- декор не должен раздувать блок: он компактный, помещается на экран телефона целиком.',
             );
+        }
+        // промты переведены на английский ради экономии токенов: нетронутый
+        // русский дефолт заменяем молча, отредактированный не трогаем
+        if (migrated === LEGACY_RU_PROMPT) {
+            migrated = DEFAULT_PROMPT;
         }
         if (migrated !== settings.prompt) {
             settings.prompt = migrated;
@@ -208,6 +316,24 @@ function extractDiaryHtml(raw) {
 function hardenLayout(html) {
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html;
+
+    // Фейковый UI остаётся фейковым: никуда не ведёт, ничего не отправляет.
+    // Единственный живой интерактив — секретики на <details>/<summary>.
+    for (const el of wrapper.querySelectorAll('a, area, base')) {
+        el.removeAttribute('href');
+        el.removeAttribute('target');
+        el.removeAttribute('ping');
+    }
+    for (const el of wrapper.querySelectorAll('input, button, select, textarea')) {
+        el.setAttribute('disabled', 'disabled');
+        el.removeAttribute('formaction');
+    }
+    // Внешние картинки не грузим: это и битые иконки, и утечка чата на чужой хост
+    for (const img of wrapper.querySelectorAll('img, source, video, audio, track')) {
+        const src = img.getAttribute('src') ?? '';
+        if (!src.startsWith('data:')) img.remove();
+    }
+
     for (const el of wrapper.querySelectorAll('*')) {
         const st = el.style;
         if (!st || !st.length) continue;
@@ -244,17 +370,51 @@ function pickPerspective(message) {
 
     switch (key) {
         case 'persona':
-            return { key, text: `«${userName}» (персона игрока). пиши от лица ${userName}, это его/её тайный дневник.` };
+            return { key, text: `the player's persona "${userName}". write as ${userName} — this is their secret diary.` };
         case 'npc':
-            return { key, text: 'второстепенный НПС, присутствующий в сцене или упомянутый в ней. сам выбери, кто это, и подпиши запись его ником.' };
+            return { key, text: 'a minor NPC present in the scene or mentioned in it. pick who it is yourself and sign the entry with their handle. NOT the main character, NOT the player.' };
         case 'environment':
-            return { key, text: 'само окружение сцены (дом, улица, лес, кофейня — что уместно) ведёт меланхоличный блог о том, что в нём происходит. одушевлённо и странно.' };
+            return { key, text: 'the setting itself (the house, the street, the woods, the cafe — whatever fits) keeps a melancholy blog about what happens inside it. animate and strange. it is NOT a person.' };
         case 'auto':
-            return { key, text: `сам выбери, чей это дневник, исходя из того, чьи скрытые чувства сейчас интереснее: персонаж «${charName}», персона игрока «${userName}», какой-нибудь НПС из сцены или само окружение.` };
+            return { key, text: `pick the author yourself, choosing whose hidden feelings are most interesting right now: the character "${charName}", the player's persona "${userName}", some NPC from the scene, or the setting itself.` };
         case 'character':
         default:
-            return { key: 'character', text: `персонаж «${charName}». пиши от лица ${charName}, это его/её тайный дневник.` };
+            return { key: 'character', text: `the character "${charName}". write as ${charName} — this is their secret diary.` };
     }
+}
+
+function pickStyle() {
+    const settings = getSettings();
+    if (settings.styleMode !== 'random' && STYLES[settings.styleMode]) {
+        return settings.styleMode;
+    }
+    const enabled = (settings.enabledStyles ?? DEFAULT_ENABLED_STYLES).filter(key => STYLES[key]);
+    return enabled.length ? randomFrom(enabled) : 'emo2000s';
+}
+
+// Постоянные комментаторы чата: берём состав из последней записи, где он был,
+// иначе набираем новый. Так подписчики блога не меняются от поста к посту.
+function pickCommenters(mesId, count) {
+    const context = getContext();
+    for (let i = mesId; i >= 0; i--) {
+        const roster = context.chat[i]?.extra?.[MODULE]?.commenters;
+        if (Array.isArray(roster) && roster.length) {
+            // состав постоянный, но при желании показать больше — добираем новых
+            if (roster.length >= count) return roster.slice(0, count);
+            const extra = COMMENTER_NICKS.filter(nick => !roster.includes(nick));
+            return [...roster, ...shuffle(extra).slice(0, count - roster.length)];
+        }
+    }
+    return shuffle([...COMMENTER_NICKS]).slice(0, count);
+}
+
+function shuffle(array) {
+    const result = [...array];
+    for (let i = result.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [result[i], result[j]] = [result[j], result[i]];
+    }
+    return result;
 }
 
 function collectCards(message) {
@@ -266,12 +426,12 @@ function collectCards(message) {
         if (!char || seen.has(char.name)) return;
         seen.add(char.name);
         const bits = [
-            char.description ? `описание: ${truncate(char.description, 1500)}` : '',
-            char.personality ? `характер: ${truncate(char.personality, 600)}` : '',
-            char.scenario ? `сценарий: ${truncate(char.scenario, 600)}` : '',
+            char.description ? `description: ${truncate(char.description, 1500)}` : '',
+            char.personality ? `personality: ${truncate(char.personality, 600)}` : '',
+            char.scenario ? `scenario: ${truncate(char.scenario, 600)}` : '',
         ].filter(Boolean);
         if (bits.length) {
-            parts.push(`персонаж «${char.name}»:\n${bits.join('\n')}`);
+            parts.push(`character "${char.name}":\n${bits.join('\n')}`);
         }
     };
 
@@ -299,14 +459,24 @@ function collectPastEntries(mesId, limit) {
 
 function buildRandomDetails() {
     return [
-        `тема оформления: ${randomFrom(THEMES)}`,
-        `вайб: ${randomFrom(VIBES)}`,
-        `просмотров страницы: ${randomInt(1, 47)}, сейчас на странице: ${randomInt(0, 3)} гостей`,
-        `комментариев: ${randomInt(0, 2)}`,
+        `color/decor theme: ${randomFrom(THEMES)}`,
+        `vibe: ${randomFrom(VIBES)}`,
+        `page views: ${randomInt(1, 47)}, currently online: ${randomInt(0, 3)} guests`,
+        `likes: ${randomInt(0, 2)}`,
     ].join('\n');
 }
 
-function buildMessages(mesId, perspective) {
+function buildCommentsBlock(commenters) {
+    return `[COMMENTS]
+after the entry, add a comments section with exactly ${commenters.length} comment(s), in this order, using EXACTLY these nicknames: ${commenters.join(', ')}.
+- these are random strangers who follow this blog. they are NOT characters from the scene, NOT NPCs, and they know nothing about the story world — never let them reference the plot as if they were there.
+- each comment: nickname, a tiny fake avatar made of ascii/emoji, a timestamp, and 1-2 short lines.
+- they mostly react to the feeling of the entry, but at least one of them misses the point completely, plugs their own blog, or leaves a bare "first!!" / "❤❤❤" / "add me on aim".
+- keep each nickname's voice consistent; style the section to match the block.
+- a fake "post a comment" box below is decoration only.`;
+}
+
+function buildMessages(mesId, perspective, styleKey, commenters) {
     const settings = getSettings();
     const context = getContext();
     const message = context.chat[mesId];
@@ -318,30 +488,35 @@ function buildMessages(mesId, perspective) {
         sceneLines.push(`${m.name}: ${truncate(htmlToText(m.mes), 1200)}`);
     }
 
-    const blocks = [`!!! АВТОР ЭТОЙ ЗАПИСИ (соблюдай строго): ${perspective.text}`];
+    const blocks = [`!!! AUTHOR OF THIS ENTRY (follow strictly): ${perspective.text}`];
 
     blocks.push(LANGUAGE_BLOCKS[settings.language] ?? LANGUAGE_BLOCKS.ru);
     blocks.push(LENGTH_BLOCKS[settings.length] ?? LENGTH_BLOCKS.short);
+    blocks.push(`[STYLE OF THE PAGE — build the block in this exact style]\n${STYLES[styleKey].prompt}`);
+
+    if (commenters?.length) {
+        blocks.push(buildCommentsBlock(commenters));
+    }
 
     if (settings.includeCards) {
         const cards = collectCards(message);
-        if (cards) blocks.push(`[карточки персонажей]\n${cards}`);
+        if (cards) blocks.push(`[CHARACTER CARDS]\n${cards}`);
     }
 
     if (settings.includePersona && power_user?.persona_description) {
-        blocks.push(`[персона игрока «${context.name1 ?? 'игрок'}»]\n${truncate(power_user.persona_description, 1000)}`);
+        blocks.push(`[PLAYER PERSONA "${context.name1 ?? 'player'}"]\n${truncate(power_user.persona_description, 1000)}`);
     }
 
-    blocks.push(`[последние события сцены]\n${sceneLines.join('\n')}`);
+    blocks.push(`[RECENT SCENE]\n${sceneLines.join('\n')}`);
 
     const past = collectPastEntries(mesId, settings.pastEntries);
     if (past.length) {
-        blocks.push(`[прошлые записи дневничка — для непрерывности настроения, не копируй их]\n${past.map(e => `• ${e}`).join('\n')}`);
+        blocks.push(`[PREVIOUS ENTRIES — for continuity of mood, do not copy them]\n${past.map(e => `• ${e}`).join('\n')}`);
     }
 
-    blocks.push(`[случайные детали для вдохновения — используй по вкусу]\n${buildRandomDetails()}`);
-    // точку зрения повторяем последней строкой: то, что ближе к концу, модель соблюдает охотнее
-    blocks.push(`напиши одну новую запись по последним событиям сцены. запись ведёт: ${perspective.text}\nверни только html-фрагмент, без пояснений.`);
+    blocks.push(`[RANDOM SEEDS — use as you like]\n${buildRandomDetails()}`);
+    // автора повторяем последней строкой: то, что ближе к концу, модель соблюдает охотнее
+    blocks.push(`write one new entry reacting to the recent scene. the author is: ${perspective.text}\nreturn the html fragment only, no explanations.`);
 
     return [
         { role: 'system', content: settings.prompt },
@@ -445,8 +620,14 @@ async function generateFor(mesId, { force = false } = {}) {
     showPlaceholder(mesId, true);
     try {
         const perspective = pickPerspective(message);
-        console.debug(`[${MODULE}] запись #${mesId}: режим «${settings.perspectiveMode}» → автор «${perspective.key}»`);
-        const raw = await chatCompletion(buildMessages(mesId, perspective));
+        const styleKey = pickStyle();
+        const commenters = settings.comments
+            ? pickCommenters(mesId, settings.commentsCount === 'auto'
+                ? randomInt(2, 3)
+                : Number(settings.commentsCount) || 2)
+            : [];
+        console.debug(`[${MODULE}] запись #${mesId}: автор «${perspective.key}» (режим «${settings.perspectiveMode}»), стиль «${styleKey}»`);
+        const raw = await chatCompletion(buildMessages(mesId, perspective, styleKey, commenters));
         const html = extractDiaryHtml(raw);
         if (!html) throw new Error('после очистки от ответа модели ничего не осталось');
 
@@ -457,6 +638,8 @@ async function generateFor(mesId, { force = false } = {}) {
         message.extra[MODULE] = {
             html,
             perspective: perspective.key,
+            style: styleKey,
+            commenters,
             model: settings.model,
             swipeId: startSwipeId,
             time: Date.now(),
@@ -498,10 +681,11 @@ function renderDiary(mesId) {
     if (!isOwnEntry(message, diary)) return;
 
     const label = PERSPECTIVE_LABELS[diary.perspective] ?? diary.perspective ?? '';
+    const style = STYLES[diary.style]?.label;
     const $block = $(`
         <div class="emodiary-block" data-mesid="${mesId}">
             <div class="emodiary-toolbar">
-                <span class="emodiary-perspective">☽ дневничок: ${escapeHtml(label)}</span>
+                <span class="emodiary-perspective">☽ дневничок: ${escapeHtml(label)}${style ? ` · ${escapeHtml(style)}` : ''}</span>
                 <span class="emodiary-btn emodiary-regen" title="Переписать запись">↻</span>
                 <span class="emodiary-btn emodiary-delete" title="Вырвать страницу">✖</span>
             </div>
@@ -549,11 +733,12 @@ function openViewer() {
         if (!diary?.html) return;
         count++;
         const label = PERSPECTIVE_LABELS[diary.perspective] ?? diary.perspective ?? '';
+        const style = STYLES[diary.style]?.label ?? '';
         const when = diary.time ? new Date(diary.time).toLocaleString('ru-RU') : '';
         const $entry = $(`
             <div class="emodiary-viewer-entry">
                 <div class="emodiary-viewer-entry-header">
-                    #${i} · к сообщению от ${escapeHtml(message.name ?? '')} · ${escapeHtml(label)} · ${escapeHtml(when)}
+                    #${i} · к сообщению от ${escapeHtml(message.name ?? '')} · ${escapeHtml(label)}${style ? ` · ${escapeHtml(style)}` : ''} · ${escapeHtml(when)}
                 </div>
                 <div class="emodiary-viewer-entry-body"></div>
             </div>
@@ -578,6 +763,17 @@ function openViewer() {
 
 function settingsHtml() {
     const s = getSettings();
+    const enabledStyles = s.enabledStyles ?? DEFAULT_ENABLED_STYLES;
+    const styleOptions = Object.entries(STYLES)
+        .map(([key, style]) => `<option value="${key}" ${s.styleMode === key ? 'selected' : ''}>только «${escapeHtml(style.label)}»</option>`)
+        .join('');
+    const styleToggles = Object.entries(STYLES)
+        .map(([key, style]) => `
+                <label class="checkbox_label">
+                    <input type="checkbox" class="emodiary_style_toggle" data-style="${key}" ${enabledStyles.includes(key) ? 'checked' : ''}>
+                    <span>${escapeHtml(style.label)}</span>
+                </label>`)
+        .join('');
     return `
     <div class="emodiary-settings">
         <div class="inline-drawer">
@@ -652,6 +848,29 @@ function settingsHtml() {
                     <option value="npc" ${s.perspectiveMode === 'npc' ? 'selected' : ''}>всегда нпс</option>
                     <option value="environment" ${s.perspectiveMode === 'environment' ? 'selected' : ''}>всегда окружение</option>
                 </select>
+                <label class="checkbox_label">
+                    <input type="checkbox" id="emodiary_comments" ${s.comments ? 'checked' : ''}>
+                    <span>Комментарии от случайных подписчиков</span>
+                </label>
+                <label>Сколько комментариев</label>
+                <select id="emodiary_comments_count" class="text_pole">
+                    <option value="auto" ${s.commentsCount === 'auto' ? 'selected' : ''}>2–3 (случайно)</option>
+                    <option value="1" ${s.commentsCount === '1' ? 'selected' : ''}>1</option>
+                    <option value="2" ${s.commentsCount === '2' ? 'selected' : ''}>2</option>
+                    <option value="3" ${s.commentsCount === '3' ? 'selected' : ''}>3</option>
+                    <option value="4" ${s.commentsCount === '4' ? 'selected' : ''}>4</option>
+                </select>
+
+                <hr>
+                <h4>Стиль страницы</h4>
+                <select id="emodiary_style_mode" class="text_pole">
+                    <option value="random" ${s.styleMode === 'random' ? 'selected' : ''}>рандом из отмеченных</option>
+                    ${styleOptions}
+                </select>
+                <div id="emodiary_style_list">${styleToggles}</div>
+
+                <hr>
+                <h4>Модель</h4>
                 <label>Температура: <span id="emodiary_temp_value">${s.temperature}</span></label>
                 <input type="range" id="emodiary_temp" min="0" max="2" step="0.05" value="${s.temperature}">
                 <label>Максимум токенов ответа</label>
@@ -703,6 +922,19 @@ function bindSettings() {
     });
     $('#emodiary_language').on('change', function () { set('language', $(this).val()); });
     $('#emodiary_length').on('change', function () { set('length', $(this).val()); });
+    $('#emodiary_comments').on('input', function () { set('comments', $(this).prop('checked')); });
+    $('#emodiary_comments_count').on('change', function () { set('commentsCount', $(this).val()); });
+    $('#emodiary_style_mode').on('change', function () { set('styleMode', $(this).val()); });
+    $(document).on('input', '.emodiary_style_toggle', () => {
+        const enabled = $('.emodiary_style_toggle:checked').map((_, el) => $(el).data('style')).get();
+        if (!enabled.length) {
+            // без единого стиля генерировать нечего — возвращаем базовый
+            $('.emodiary_style_toggle[data-style="emo2000s"]').prop('checked', true);
+            enabled.push('emo2000s');
+            toastr.info('Хотя бы один стиль должен остаться', 'Эмо-дневничок');
+        }
+        set('enabledStyles', enabled);
+    });
     $('#emodiary_depth').on('input', function () { set('depth', Number($(this).val())); $('#emodiary_depth_value').text($(this).val()); });
     $('#emodiary_past').on('input', function () { set('pastEntries', Number($(this).val())); $('#emodiary_past_value').text($(this).val()); });
     $('#emodiary_temp').on('input', function () { set('temperature', Number($(this).val())); $('#emodiary_temp_value').text($(this).val()); });

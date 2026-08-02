@@ -40,6 +40,41 @@
     white-space: normal !important;
 }
 
+/* фейковый UI от модели — чистая декорация, кликнуть нельзя */
+.emodiary-inner a,
+.emodiary-inner button,
+.emodiary-inner input,
+.emodiary-inner select,
+.emodiary-inner textarea,
+.emodiary-viewer-entry-body a,
+.emodiary-viewer-entry-body button,
+.emodiary-viewer-entry-body input,
+.emodiary-viewer-entry-body select,
+.emodiary-viewer-entry-body textarea {
+    pointer-events: none !important;
+    cursor: default !important;
+    user-select: none;
+}
+
+/* ...кроме секретиков: единственный живой интерактив в блоке */
+.emodiary-inner details,
+.emodiary-inner summary,
+.emodiary-viewer-entry-body details,
+.emodiary-viewer-entry-body summary {
+    pointer-events: auto !important;
+}
+
+.emodiary-inner summary,
+.emodiary-viewer-entry-body summary {
+    cursor: pointer !important;
+    user-select: none;
+}
+
+.emodiary-inner summary:hover,
+.emodiary-viewer-entry-body summary:hover {
+    filter: brightness(1.35);
+}
+
 .emodiary-toolbar {
     display: flex;
     align-items: center;
