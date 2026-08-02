@@ -35,7 +35,7 @@ MARKUP:
 - layout must be strictly fluid (people read this on phones!): max-width:100%, no horizontal scroll, no fixed px widths, no position:absolute/fixed, no white-space:nowrap. keep ascii dividers short (~20 chars). tables only with width:100%.
 - borders (solid/dashed/dotted), old webkit gradients, ascii decor (☽ ☾ ♡ ★ ✞ ▓ ░ ✂ ✉), fake buttons, guest counters, "banners".
 - fake UI (buttons, inputs, "submit", nav links) is PURE DECORATION and does nothing. never put a real url in href. no <img> tags — there are no real images, fake them with ascii, emoji and gradients.
-- SECRETS: hide 1-2 of the most private confessions inside <details><summary>lure text</summary>the secret</details>, styled to match the block. this is the ONLY thing that reacts to a click. the lure text is in-world ("read at your own risk", "under the cut", "don't click this").
+- SECRETS: hide 1-2 of the most private confessions inside <details><summary>lure</summary>the secret</details>, styled to match the block. this is the ONLY thing that reacts to a click. the lure is a warning, a dare or a plea, and it must be different every time: "do not open", "secret", "not for you", "read at your own risk", "i'll regret writing this", "click if you dare", "🔒 locked", "delete this later", "nobody look". NEVER use blogging jargon like "cut", "under the cut", "read more", "keep reading", "expand".
 - SURPRISE EVERY TIME: vary structure, decor, layout and voice. never repeat the previous layout.
 - decor must not bloat the block: it stays compact and fits a phone screen.`;
 
@@ -74,6 +74,7 @@ const DEFAULT_SETTINGS = {
     attachToUser: false,
     apiSource: 'custom', // 'custom' | 'profile'
     profileId: '',
+    profileModel: '', // пусто = модель, зашитая в профиль
     endpoint: '',
     apiKey: '',
     model: '',
@@ -251,6 +252,13 @@ function getSettings() {
         // русский дефолт заменяем молча, отредактированный не трогаем
         if (migrated === LEGACY_RU_PROMPT) {
             migrated = DEFAULT_PROMPT;
+        }
+        // «под катом» и прочий блогерский жаргон заменён на живые заманухи
+        if (migrated.includes('under the cut')) {
+            migrated = migrated.replace(
+                /^- SECRETS:.*$/m,
+                DEFAULT_PROMPT.match(/^- SECRETS:.*$/m)[0],
+            );
         }
         if (migrated !== settings.prompt) {
             settings.prompt = migrated;
@@ -593,6 +601,62 @@ function getProfileById(id) {
     return getProfiles().find(profile => profile.id === id);
 }
 
+// Списки моделей уже загружены самой таверной в её же селекты — забираем оттуда,
+// чтобы не ходить к провайдеру своим запросом (ключа у нас в этом режиме нет).
+function collectProfileModels(profile) {
+    const api = String(profile?.api ?? '').toLowerCase();
+    const isModelField = (el) => /model/i.test(el.id);
+
+    const selects = [...document.querySelectorAll('select[id]')]
+        .filter(el => isModelField(el) && el.options.length > 1);
+    const scored = selects
+        .map(el => ({ el, score: api && el.id.toLowerCase().includes(api) ? 1 : 0 }))
+        .sort((a, b) => b.score - a.score);
+
+    // селект именно этого API — берём только его; не нашли — отдаём всё, что есть
+    const matched = scored.some(item => item.score > 0);
+    const chosen = matched ? scored.filter(item => item.score > 0) : scored;
+
+    const models = [];
+    const seen = new Set();
+    for (const { el } of chosen) {
+        for (const option of el.options) {
+            const value = option.value?.trim();
+            if (!value || seen.has(value)) continue;
+            seen.add(value);
+            models.push({ value, label: option.textContent?.trim() || value });
+        }
+    }
+
+    // У кастомных OpenAI-совместимых подключений модель вводится текстом.
+    // Берём такое поле, только если оно относится к этому же API (или если
+    // подходящего селекта не нашлось вовсе) — иначе в список к openrouter
+    // приедет модель из настроек custom.
+    for (const input of document.querySelectorAll('input[id]')) {
+        if (!isModelField(input)) continue;
+        if (matched && !(api && input.id.toLowerCase().includes(api))) continue;
+        const value = input.value?.trim();
+        if (value && !seen.has(value)) {
+            seen.add(value);
+            models.push({ value, label: value });
+        }
+    }
+
+    return { models, matched };
+}
+
+// Переопределение модели поддерживают не все сборки ST — проверяем по сигнатуре.
+function supportsModelOverride() {
+    const send = getContext().ConnectionManagerRequestService?.sendRequest;
+    return !!send && /overridePayload/.test(String(send));
+}
+
+let overrideWarned = false;
+
+function profileModelName(profileId) {
+    return getProfileById(profileId)?.model || 'модель профиля';
+}
+
 // Запрос уходит через ST: ключ и адрес остаются на её стороне, дублировать
 // их в настройках расширения не нужно.
 async function chatCompletionProfile(messages, { maxTokens } = {}) {
@@ -609,14 +673,28 @@ async function chatCompletionProfile(messages, { maxTokens } = {}) {
     const options = { extractData: true, includePreset: false, includeInstruct: false };
     const limit = maxTokens ?? settings.maxTokens;
 
+    const override = {};
+    const wantedModel = String(settings.profileModel ?? '').trim();
+    if (wantedModel) {
+        if (supportsModelOverride()) {
+            override.model = wantedModel;
+        } else if (!overrideWarned) {
+            overrideWarned = true;
+            toastr.warning(
+                `Эта сборка SillyTavern не умеет подменять модель у профиля — пишем моделью профиля (${profileModelName(settings.profileId)}).`,
+                'Эмо-дневничок',
+            );
+        }
+    }
+
     let result;
     try {
-        result = await service.sendRequest(settings.profileId, messages, limit, options);
+        result = await service.sendRequest(settings.profileId, messages, limit, options, override);
     } catch (error) {
         // сборки постарше принимают только плоский текст вместо массива сообщений
         console.debug(`[${MODULE}] профиль не принял массив сообщений, пробуем текстом:`, error);
         const flat = messages.map(m => m.content).join('\n\n');
-        result = await service.sendRequest(settings.profileId, flat, limit, options);
+        result = await service.sendRequest(settings.profileId, flat, limit, options, override);
     }
 
     let content = typeof result === 'string'
@@ -862,6 +940,13 @@ function settingsHtml() {
                         <div id="emodiary_profile_test" class="menu_button">Проверить профиль</div>
                     </div>
                     <div id="emodiary_profile_info" class="emodiary-hint"></div>
+                    <label>Модель</label>
+                    <select id="emodiary_profile_model_select" class="text_pole"></select>
+                    <input type="text" id="emodiary_profile_model" class="text_pole" placeholder="или впиши id модели вручную (пусто = модель профиля)" value="${escapeHtml(s.profileModel)}">
+                    <div class="flex-container">
+                        <div id="emodiary_profile_model_test" class="menu_button">Проверить модель</div>
+                    </div>
+                    <div id="emodiary_profile_model_info" class="emodiary-hint"></div>
                 </div>
 
                 <div id="emodiary_custom_block">
@@ -992,6 +1077,40 @@ function showProfileInfo() {
     $('#emodiary_profile_info').text(parts.length ? `api: ${parts.join(' · модель: ')}` : '');
 }
 
+function refreshProfileModelList() {
+    const settings = getSettings();
+    const $select = $('#emodiary_profile_model_select');
+    if (!$select.length) return;
+
+    const profile = getProfileById(settings.profileId);
+    const fallback = profile?.model ? ` (${profile.model})` : '';
+    $select.empty().append($('<option>').val('').text(`— модель профиля${fallback} —`));
+
+    if (!profile) {
+        $('#emodiary_profile_model_info').text('');
+        return;
+    }
+
+    const { models, matched } = collectProfileModels(profile);
+    for (const model of models) {
+        $select.append($('<option>').val(model.value).text(model.label));
+    }
+    if (settings.profileModel && models.some(m => m.value === settings.profileModel)) {
+        $select.val(settings.profileModel);
+    }
+
+    const hints = [];
+    if (!models.length) {
+        hints.push('Таверна ещё не загрузила список моделей для этого API — открой её меню подключения или впиши id вручную.');
+    } else if (!matched) {
+        hints.push(`Список моделей именно для «${profile.api}» не нашёлся, показаны все известные таверне.`);
+    }
+    if (!supportsModelOverride()) {
+        hints.push('Эта сборка ST не умеет подменять модель у профиля — будет использована модель самого профиля.');
+    }
+    $('#emodiary_profile_model_info').text(hints.join(' '));
+}
+
 function updateSourceVisibility() {
     const profileMode = getSettings().apiSource === 'profile';
     $('#emodiary_profile_block').toggle(profileMode);
@@ -1019,15 +1138,50 @@ function bindSettings() {
         set('apiSource', $(this).val());
         updateSourceVisibility();
         setStatus('');
-        if (getSettings().apiSource === 'profile') refreshProfileList();
+        if (getSettings().apiSource === 'profile') {
+            refreshProfileList();
+            refreshProfileModelList();
+        }
     });
     $('#emodiary_profile').on('change', function () {
         set('profileId', $(this).val());
+        // модель прошлого профиля к новому не относится
+        set('profileModel', '');
+        $('#emodiary_profile_model').val('');
         showProfileInfo();
+        refreshProfileModelList();
         setStatus('');
+    });
+    $('#emodiary_profile_model_select').on('change', function () {
+        set('profileModel', $(this).val());
+        $('#emodiary_profile_model').val($(this).val());
+        setStatus('');
+    });
+    $('#emodiary_profile_model').on('input', function () {
+        set('profileModel', String($(this).val()).trim());
+    });
+    $('#emodiary_profile_model_test').on('click', async () => {
+        const settings = getSettings();
+        if (!getProfileById(settings.profileId)) {
+            setStatus('✖ сначала выбери профиль', false);
+            return;
+        }
+        const model = settings.profileModel || profileModelName(settings.profileId);
+        if (settings.profileModel && !supportsModelOverride()) {
+            setStatus(`✖ эта сборка SillyTavern не умеет подменять модель у профиля — писать будет ${profileModelName(settings.profileId)}`, false);
+            return;
+        }
+        setStatus(`проверяем модель ${model}...`);
+        try {
+            await chatCompletionProfile([{ role: 'user', content: 'reply with one word: hello' }], { maxTokens: 20 });
+            setStatus(`✔ модель ${model} отвечает`, true);
+        } catch (error) {
+            setStatus(`✖ модель не отвечает: ${error.message}`, false);
+        }
     });
     $('#emodiary_profile_refresh').on('click', () => {
         refreshProfileList();
+        refreshProfileModelList();
         const count = getProfiles().length;
         setStatus(count ? `профилей найдено: ${count}` : '✖ в таверне нет профилей подключения', count > 0);
     });
@@ -1248,6 +1402,7 @@ jQuery(async () => {
     bindSettings();
     updateSourceVisibility();
     refreshProfileList();
+    refreshProfileModelList();
     addMenuItems();
     bindEvents();
     setTimeout(renderAll, 500);
