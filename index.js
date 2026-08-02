@@ -15,6 +15,7 @@ const DEFAULT_PROMPT = `ты — автор «эмо-дневничка»: по 
 - запись — внутренний монолог автора: тайные мысли, которые он никогда не скажет вслух.
 - это комментарий к сцене и к собственным чувствам, НЕ продолжение сюжета.
 - первое лицо, интроспективно. депрессивно, но с проблеском надежды.
+- КОРОТКО: это заметка на бегу, а не эссе. одна мысль, одно чувство. лучше меньше, но пронзительнее.
 - без заглавных букв (КАПС только для эмоций), минимум знаков препинания, переносы строк вместо абзацев, подростковая искренность.
 
 В КАЖДОЙ ЗАПИСИ ОБЯЗАТЕЛЬНО:
@@ -33,7 +34,8 @@ const DEFAULT_PROMPT = `ты — автор «эмо-дневничка»: по 
 - шрифты: 'Times New Roman', 'Courier New', 'Comic Sans MS'. мелкий кегль (10–12px).
 - вёрстка строго резиновая (читают с телефонов!): max-width:100%, никакого горизонтального скролла, никаких фиксированных ширин в px, position:absolute/fixed и white-space:nowrap. ascii-разделители — короткие (до ~20 символов). таблицы только с width:100%.
 - рамки (solid/dashed/dotted), градиенты в старом webkit-синтаксисе, ascii-декор (☽ ☾ ♡ ★ ✞ ▓ ░ ✂ ✉), фейковые нерабочие кнопочки, гостевые счётчики, «баннеры».
-- КАЖДЫЙ РАЗ УДИВЛЯЙ: меняй структуру, декор, вёрстку и голос записи. никогда не повторяй прошлую вёрстку один в один.`;
+- КАЖДЫЙ РАЗ УДИВЛЯЙ: меняй структуру, декор, вёрстку и голос записи. никогда не повторяй прошлую вёрстку один в один.
+- декор не должен раздувать блок: он компактный, помещается на экран телефона целиком.`;
 
 const DEFAULT_SETTINGS = {
     enabled: true,
@@ -49,7 +51,15 @@ const DEFAULT_SETTINGS = {
     pastEntries: 2,
     perspectiveMode: 'random', // 'random' | 'auto' | 'character' | 'persona' | 'npc' | 'environment'
     language: 'ru', // 'ru' | 'en'
+    length: 'short', // 'tiny' | 'short' | 'medium' | 'long'
     prompt: DEFAULT_PROMPT,
+};
+
+const LENGTH_BLOCKS = {
+    tiny: 'ОБЪЁМ: совсем крошечная запись — 1–3 строки основного текста. обрывок мысли, вырвавшийся в блог.',
+    short: 'ОБЪЁМ: короткая запись — 3–6 строк основного текста. одна мысль, одно чувство, без развёрнутых рассуждений.',
+    medium: 'ОБЪЁМ: средняя запись — 6–10 строк основного текста.',
+    long: 'ОБЪЁМ: развёрнутая запись — 10–16 строк основного текста, но всё равно без воды.',
 };
 
 const LANGUAGE_BLOCKS = {
@@ -108,7 +118,7 @@ function getSettings() {
     // а эстетика ссылалась на рунет — теперь язык задаётся настройкой,
     // а вайб всегда западный (LiveJournal/MySpace/Xanga)
     if (typeof settings.prompt === 'string') {
-        const migrated = settings.prompt
+        let migrated = settings.prompt
             .replace(/^- весь текст ТОЛЬКО НА РУССКОМ\.\s*$\n?/m, '')
             .replace(
                 'в эстетике рунета 2000-х (дайри.ру, ЖЖ, беон, MySpace).',
@@ -119,6 +129,19 @@ function getSettings() {
                 '- max-width:100%, никакого горизонтального скролла.',
                 '- вёрстка строго резиновая (читают с телефонов!): max-width:100%, никакого горизонтального скролла, никаких фиксированных ширин в px, position:absolute/fixed и white-space:nowrap. ascii-разделители — короткие (до ~20 символов). таблицы только с width:100%.',
             );
+        // требование краткости добавлено позже — дописываем, если его ещё нет
+        if (!migrated.includes('КОРОТКО:')) {
+            migrated = migrated.replace(
+                '- первое лицо, интроспективно. депрессивно, но с проблеском надежды.',
+                '- первое лицо, интроспективно. депрессивно, но с проблеском надежды.\n- КОРОТКО: это заметка на бегу, а не эссе. одна мысль, одно чувство. лучше меньше, но пронзительнее.',
+            );
+        }
+        if (!migrated.includes('декор не должен раздувать блок')) {
+            migrated = migrated.replace(
+                '- КАЖДЫЙ РАЗ УДИВЛЯЙ: меняй структуру, декор, вёрстку и голос записи. никогда не повторяй прошлую вёрстку один в один.',
+                '- КАЖДЫЙ РАЗ УДИВЛЯЙ: меняй структуру, декор, вёрстку и голос записи. никогда не повторяй прошлую вёрстку один в один.\n- декор не должен раздувать блок: он компактный, помещается на экран телефона целиком.',
+            );
+        }
         if (migrated !== settings.prompt) {
             settings.prompt = migrated;
             saveSettingsDebounced();
@@ -295,9 +318,10 @@ function buildMessages(mesId, perspective) {
         sceneLines.push(`${m.name}: ${truncate(htmlToText(m.mes), 1200)}`);
     }
 
-    const blocks = [`ТОЧКА ЗРЕНИЯ ЭТОЙ ЗАПИСИ: ${perspective.text}`];
+    const blocks = [`!!! АВТОР ЭТОЙ ЗАПИСИ (соблюдай строго): ${perspective.text}`];
 
     blocks.push(LANGUAGE_BLOCKS[settings.language] ?? LANGUAGE_BLOCKS.ru);
+    blocks.push(LENGTH_BLOCKS[settings.length] ?? LENGTH_BLOCKS.short);
 
     if (settings.includeCards) {
         const cards = collectCards(message);
@@ -316,7 +340,8 @@ function buildMessages(mesId, perspective) {
     }
 
     blocks.push(`[случайные детали для вдохновения — используй по вкусу]\n${buildRandomDetails()}`);
-    blocks.push('напиши одну новую запись по последним событиям сцены. верни только html-фрагмент, без пояснений.');
+    // точку зрения повторяем последней строкой: то, что ближе к концу, модель соблюдает охотнее
+    blocks.push(`напиши одну новую запись по последним событиям сцены. запись ведёт: ${perspective.text}\nверни только html-фрагмент, без пояснений.`);
 
     return [
         { role: 'system', content: settings.prompt },
@@ -393,14 +418,25 @@ function syncDiaryToSwipe(message) {
     info.extra[MODULE] = diary ? structuredClone(diary) : null;
 }
 
+// Запись «своя», если она написана для текущего свайпа. При создании нового
+// свайпа ST копирует extra предыдущего — такая унаследованная запись чужая.
+// У записей до появления swipeId его нет — считаем их своими.
+function isOwnEntry(message, entry) {
+    if (!entry?.html) return false;
+    return entry.swipeId === undefined || entry.swipeId === (message.swipe_id ?? 0);
+}
+
 async function generateFor(mesId, { force = false } = {}) {
     const settings = getSettings();
     const context = getContext();
     const message = context.chat[mesId];
     if (!message || message.is_system) return;
     if (inFlight.has(mesId)) return;
-    // null-запись — «страница вырвана вручную», без force не переписываем
-    if (!force && message.extra && MODULE in message.extra) return;
+    if (!force) {
+        const existing = message.extra?.[MODULE];
+        if (existing === null) return;                      // вырвана вручную
+        if (isOwnEntry(message, existing)) return;          // своя запись уже есть
+    }
 
     // у свежего сообщения swipe_id ещё undefined — ST инициализирует его в 0
     // позже, поэтому сравниваем нормализованные значения
@@ -409,6 +445,7 @@ async function generateFor(mesId, { force = false } = {}) {
     showPlaceholder(mesId, true);
     try {
         const perspective = pickPerspective(message);
+        console.debug(`[${MODULE}] запись #${mesId}: режим «${settings.perspectiveMode}» → автор «${perspective.key}»`);
         const raw = await chatCompletion(buildMessages(mesId, perspective));
         const html = extractDiaryHtml(raw);
         if (!html) throw new Error('после очистки от ответа модели ничего не осталось');
@@ -454,8 +491,11 @@ function renderDiary(mesId) {
     if (!$mes.length) return;
     $mes.find('.emodiary-block').remove();
 
-    const diary = context.chat[mesId]?.extra?.[MODULE];
-    if (!diary?.html) return;
+    const message = context.chat[mesId];
+    const diary = message?.extra?.[MODULE];
+    // унаследованную от другого свайпа запись не показываем — для этого
+    // варианта скоро напишется своя
+    if (!isOwnEntry(message, diary)) return;
 
     const label = PERSPECTIVE_LABELS[diary.perspective] ?? diary.perspective ?? '';
     const $block = $(`
@@ -596,6 +636,13 @@ function settingsHtml() {
                     <option value="ru" ${s.language === 'ru' ? 'selected' : ''}>русский</option>
                     <option value="en" ${s.language === 'en' ? 'selected' : ''}>english</option>
                 </select>
+                <label>Длина записи</label>
+                <select id="emodiary_length" class="text_pole">
+                    <option value="tiny" ${s.length === 'tiny' ? 'selected' : ''}>крошечная (1–3 строки)</option>
+                    <option value="short" ${s.length === 'short' ? 'selected' : ''}>короткая (3–6 строк)</option>
+                    <option value="medium" ${s.length === 'medium' ? 'selected' : ''}>средняя (6–10 строк)</option>
+                    <option value="long" ${s.length === 'long' ? 'selected' : ''}>развёрнутая (10–16 строк)</option>
+                </select>
                 <label>Чей дневник</label>
                 <select id="emodiary_perspective" class="text_pole">
                     <option value="random" ${s.perspectiveMode === 'random' ? 'selected' : ''}>рандом (персонаж/персона/нпс/окружение)</option>
@@ -629,35 +676,43 @@ function setStatus(text, ok = null) {
 }
 
 function bindSettings() {
-    const s = getSettings();
-    const save = () => saveSettingsDebounced();
+    // ВАЖНО: настройки берём через getSettings() внутри каждого обработчика.
+    // Захваченная в замыкание ссылка протухает, если ST пересоздаёт
+    // extension_settings[MODULE] (перезагрузка/импорт настроек) — тогда правки
+    // уходили бы в «осиротевший» объект, а генерация читала бы новый.
+    const set = (key, value) => {
+        getSettings()[key] = value;
+        saveSettingsDebounced();
+    };
 
-    $('#emodiary_enabled').on('input', function () { s.enabled = $(this).prop('checked'); save(); });
-    $('#emodiary_attach_user').on('input', function () { s.attachToUser = $(this).prop('checked'); save(); });
-    $('#emodiary_endpoint').on('input', function () { s.endpoint = $(this).val(); save(); });
-    $('#emodiary_api_key').on('input', function () { s.apiKey = $(this).val(); save(); });
-    $('#emodiary_model').on('input', function () { s.model = String($(this).val()).trim(); save(); });
+    $('#emodiary_enabled').on('input', function () { set('enabled', $(this).prop('checked')); });
+    $('#emodiary_attach_user').on('input', function () { set('attachToUser', $(this).prop('checked')); });
+    $('#emodiary_endpoint').on('input', function () { set('endpoint', $(this).val()); });
+    $('#emodiary_api_key').on('input', function () { set('apiKey', $(this).val()); });
+    $('#emodiary_model').on('input', function () { set('model', String($(this).val()).trim()); });
     $('#emodiary_model_select').on('change', function () {
         const value = $(this).val();
         if (value) {
-            s.model = value;
+            set('model', value);
             $('#emodiary_model').val(value);
-            save();
         }
     });
-    $('#emodiary_perspective').on('change', function () { s.perspectiveMode = $(this).val(); save(); });
-    $('#emodiary_language').on('change', function () { s.language = $(this).val(); save(); });
-    $('#emodiary_depth').on('input', function () { s.depth = Number($(this).val()); $('#emodiary_depth_value').text(s.depth); save(); });
-    $('#emodiary_past').on('input', function () { s.pastEntries = Number($(this).val()); $('#emodiary_past_value').text(s.pastEntries); save(); });
-    $('#emodiary_temp').on('input', function () { s.temperature = Number($(this).val()); $('#emodiary_temp_value').text(s.temperature); save(); });
-    $('#emodiary_max_tokens').on('input', function () { s.maxTokens = Number($(this).val()) || DEFAULT_SETTINGS.maxTokens; save(); });
-    $('#emodiary_cards').on('input', function () { s.includeCards = $(this).prop('checked'); save(); });
-    $('#emodiary_persona').on('input', function () { s.includePersona = $(this).prop('checked'); save(); });
-    $('#emodiary_prompt').on('input', function () { s.prompt = $(this).val(); save(); });
+    $('#emodiary_perspective').on('change', function () {
+        set('perspectiveMode', $(this).val());
+        console.debug(`[${MODULE}] точка зрения: ${getSettings().perspectiveMode}`);
+    });
+    $('#emodiary_language').on('change', function () { set('language', $(this).val()); });
+    $('#emodiary_length').on('change', function () { set('length', $(this).val()); });
+    $('#emodiary_depth').on('input', function () { set('depth', Number($(this).val())); $('#emodiary_depth_value').text($(this).val()); });
+    $('#emodiary_past').on('input', function () { set('pastEntries', Number($(this).val())); $('#emodiary_past_value').text($(this).val()); });
+    $('#emodiary_temp').on('input', function () { set('temperature', Number($(this).val())); $('#emodiary_temp_value').text($(this).val()); });
+    $('#emodiary_max_tokens').on('input', function () { set('maxTokens', Number($(this).val()) || DEFAULT_SETTINGS.maxTokens); });
+    $('#emodiary_cards').on('input', function () { set('includeCards', $(this).prop('checked')); });
+    $('#emodiary_persona').on('input', function () { set('includePersona', $(this).prop('checked')); });
+    $('#emodiary_prompt').on('input', function () { set('prompt', $(this).val()); });
     $('#emodiary_prompt_reset').on('click', () => {
-        s.prompt = DEFAULT_PROMPT;
+        set('prompt', DEFAULT_PROMPT);
         $('#emodiary_prompt').val(DEFAULT_PROMPT);
-        save();
         toastr.info('Промт сброшен на стандартный', 'Эмо-дневничок');
     });
 
@@ -670,8 +725,9 @@ function bindSettings() {
             for (const id of models) {
                 $select.append($('<option>').val(id).text(id));
             }
-            if (s.model && models.includes(s.model)) {
-                $select.val(s.model);
+            const current = getSettings().model;
+            if (current && models.includes(current)) {
+                $select.val(current);
             }
             setStatus(`✔ подключение есть, моделей: ${models.length}`, true);
         } catch (error) {
@@ -680,14 +736,15 @@ function bindSettings() {
     });
 
     $('#emodiary_test_model').on('click', async () => {
-        if (!s.model) {
+        const model = getSettings().model;
+        if (!model) {
             setStatus('✖ сначала выбери или впиши модель', false);
             return;
         }
-        setStatus(`проверяем модель ${s.model}...`);
+        setStatus(`проверяем модель ${model}...`);
         try {
             await chatCompletion([{ role: 'user', content: 'ответь одним словом: привет' }], { maxTokens: 20, temperature: 0 });
-            setStatus(`✔ модель ${s.model} отвечает`, true);
+            setStatus(`✔ модель ${model} отвечает`, true);
         } catch (error) {
             setStatus(`✖ модель не отвечает: ${error.message}`, false);
         }
@@ -719,6 +776,31 @@ function addMenuItems() {
 
 // --- события ---
 
+// Пока основная модель ещё пишет пост, дневничок писать рано: он получится
+// по обрывку сцены, а потом ST дорисует сообщение и запись придётся выбросить.
+function isMainGenerationActive() {
+    const context = getContext();
+    const streaming = context.streamingProcessor;
+    return !!streaming && !streaming.isFinished;
+}
+
+// Генерируем только когда основная генерация полностью закончилась.
+function flushPending() {
+    if (!pendingGeneration.size) return;
+    if (isMainGenerationActive()) {
+        setTimeout(flushPending, 400);
+        return;
+    }
+    const ids = [...pendingGeneration];
+    pendingGeneration.clear();
+    for (const mesId of ids) {
+        const message = getContext().chat[mesId];
+        const mes = String(message?.mes ?? '').trim();
+        if (!mes || mes === '...') continue; // пост так и не дописался
+        generateFor(mesId);
+    }
+}
+
 function bindEvents() {
     eventSource.on(event_types.MESSAGE_RECEIVED, (mesId) => {
         if (getSettings().enabled) pendingGeneration.add(Number(mesId));
@@ -729,16 +811,18 @@ function bindEvents() {
         if (s.enabled && s.attachToUser) pendingGeneration.add(Number(mesId));
     });
 
+    // Конец основной генерации — единственный момент, когда текст поста финален.
+    for (const type of [event_types.GENERATION_ENDED, event_types.GENERATION_STOPPED]) {
+        if (type) eventSource.on(type, () => setTimeout(flushPending, 100));
+    }
+
     const onRendered = (mesId) => {
         mesId = Number(mesId);
-        if (pendingGeneration.has(mesId)) {
-            pendingGeneration.delete(mesId);
-            // force: при создании нового свайпа ST копирует extra предыдущего,
-            // и в нём может лежать чужая запись — свежий текст всегда получает свежую
-            generateFor(mesId, { force: true });
-        } else {
-            renderDiary(mesId);
-        }
+        renderDiary(mesId);
+        // Подстраховка: если GENERATION_ENDED в этой сборке ST не пришёл
+        // (или пришёл раньше MESSAGE_RECEIVED), дожимаем отложенное сами —
+        // flushPending всё равно дождётся конца стриминга.
+        if (pendingGeneration.has(mesId)) setTimeout(flushPending, 1200);
     };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, onRendered);
     eventSource.on(event_types.USER_MESSAGE_RENDERED, onRendered);
@@ -749,28 +833,20 @@ function bindEvents() {
         mesId = Number(mesId);
         // даём ST дорисовать свайп и восстановить extra из swipe_info
         setTimeout(() => {
-            const context = getContext();
-            const message = context.chat[mesId];
+            const message = getContext().chat[mesId];
             if (!message) return;
 
-            // у этого варианта уже есть СВОЯ запись — просто показываем её
-            // (swipeId отличает её от унаследованной при создании свайпа;
-            // у старых записей swipeId нет — считаем их своими)
-            const diary = message.extra?.[MODULE];
-            const ownDiary = diary?.html
-                && (diary.swipeId === undefined || diary.swipeId === (message.swipe_id ?? 0));
-            if (ownDiary) {
-                renderDiary(mesId);
+            renderDiary(mesId); // своя запись этого свайпа покажется сразу
+            if (message.extra?.[MODULE] === null) return; // вырвана вручную
+
+            const mes = String(message.mes ?? '').trim();
+            if (!getSettings().enabled) return;
+            if (!mes || mes === '...') {
+                // свайп-догенерация: текста ещё нет, ждём конца генерации
+                pendingGeneration.add(mesId);
                 return;
             }
-
-            const tombstone = diary === null; // null = вырвана вручную, не трогаем
-            const mes = String(message.mes ?? '').trim();
-            // свайп-догенерация (пустой текст/'...') придёт через MESSAGE_RECEIVED;
-            // для готового варианта пишем свою запись (force — если лежит унаследованная чужая)
-            if (getSettings().enabled && !tombstone && mes && mes !== '...') {
-                generateFor(mesId, { force: !!diary });
-            }
+            generateFor(mesId); // сама пропустит, если своя запись уже есть
         }, 150);
     });
 
